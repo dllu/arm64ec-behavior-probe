@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 typedef LONG NTSTATUS;
 typedef NTSTATUS (WINAPI *NtMapViewOfSection_t)(HANDLE,HANDLE,PVOID*,ULONG_PTR,SIZE_T,LARGE_INTEGER*,SIZE_T*,DWORD,ULONG,ULONG);
@@ -257,6 +258,8 @@ int main(void)
         { "unmap_view", { "NotifyUnmapViewOfSection", "BTCpuNotifyUnmapViewOfSection", NULL } },
     };
     unsigned int i;
+
+    setvbuf(stdout, NULL, _IONBF, 0);
 
     printf("PROCESSOR_ARCHITECTURE=%s PROCESSOR_ARCHITEW6432=%s\n",
            getenv("PROCESSOR_ARCHITECTURE") ? getenv("PROCESSOR_ARCHITECTURE") : "",
