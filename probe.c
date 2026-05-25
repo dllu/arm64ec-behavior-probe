@@ -348,6 +348,7 @@ static void scenario_image_map(BOOL loader_marker)
     void *addr = NULL;
     SIZE_T size = 0;
     NTSTATUS status;
+    PVOID *marker_ptr = (PVOID *)((BYTE *)NtCurrentTeb() + FIELD_OFFSET(NT_TIB, ArbitraryUserPointer));
     PVOID old_marker = NULL;
 
     GetSystemDirectoryW(path, MAX_PATH);
@@ -368,12 +369,12 @@ static void scenario_image_map(BOOL loader_marker)
 
     if (loader_marker)
     {
-        old_marker = NtCurrentTeb()->ArbitraryUserPointer;
-        NtCurrentTeb()->ArbitraryUserPointer = path;
+        old_marker = *marker_ptr;
+        *marker_ptr = path;
     }
     status = pNtMapViewOfSection(mapping, GetCurrentProcess(), &addr, 0, 0, NULL, &size,
                                  ViewShare, 0, PAGE_READONLY);
-    if (loader_marker) NtCurrentTeb()->ArbitraryUserPointer = old_marker;
+    if (loader_marker) *marker_ptr = old_marker;
 
     printf("  image NtMapViewOfSection status=%08lx addr=%p size=%llu loader_marker=%u\n",
            status, addr, (unsigned long long)size, loader_marker);
