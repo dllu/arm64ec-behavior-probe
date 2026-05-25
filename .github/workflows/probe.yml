@@ -4,35 +4,71 @@ on:
   workflow_dispatch:
 
 jobs:
-  probe:
+  diagnostics:
     runs-on: windows-11-arm
+    steps:
+      - name: Show runner architecture
+        shell: pwsh
+        run: |
+          Write-Host "OSArchitecture=$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
+          Write-Host "ProcessArchitecture=$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)"
+          Get-CimInstance Win32_Processor | Format-List Name,Architecture,Manufacturer,NumberOfCores,NumberOfLogicalProcessors
+          cmd /c ver
+          cmd /c "echo PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%"
+          cmd /c "echo PROCESSOR_ARCHITEW6432=%PROCESSOR_ARCHITEW6432%"
+          Get-ChildItem C:\Windows\System32 -Filter '*xtajit*' -ErrorAction SilentlyContinue | Format-Table Name,Length,FullName
+          Get-ChildItem C:\Windows\System32 -Filter '*wow64*' -ErrorAction SilentlyContinue | Select-Object -First 20 | Format-Table Name,Length,FullName
+
+  x64:
+    runs-on: windows-11-arm
+    needs: diagnostics
     steps:
       - uses: actions/checkout@v4
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: amd64
-
-      - name: Show environment
-        shell: cmd
-        run: |
-          ver
-          echo PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%
-          echo PROCESSOR_ARCHITEW6432=%PROCESSOR_ARCHITEW6432%
-          where cl
-          where clang-cl || exit /b 0
+          arch: x64
 
       - name: Build x64 probe with MSVC
         shell: cmd
         run: |
           cl /nologo /W4 /Zi /O2 probe.c /link /MACHINE:X64 /OUT:x64_probe.exe
 
-      - name: Inspect binary
+      - name: Inspect x64 binary
         shell: pwsh
         run: |
           dumpbin /headers x64_probe.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
 
-      - name: Run probe
+      - name: Run x64 probe
+        shell: pwsh
+        run: |
+          .\x64_probe.exe
+          Write-Host "x64_probe exit=$LASTEXITCODE"
+          exit 0
+
+  arm64ec:
+    runs-on: windows-11-arm
+    needs: diagnostics
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64_arm64
+
+      - name: Build ARM64EC probe with MSVC
         shell: cmd
         run: |
-          x64_probe.exe
+          cl /nologo /W4 /Zi /O2 /arm64EC probe.c /link /MACHINE:ARM64EC /OUT:arm64ec_probe.exe
+
+      - name: Inspect ARM64EC binary
+        shell: pwsh
+        run: |
+          dumpbin /headers arm64ec_probe.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
+
+      - name: Run ARM64EC probe
+        shell: pwsh
+        run: |
+          .\arm64ec_probe.exe
+          Write-Host "arm64ec_probe exit=$LASTEXITCODE"
+          exit 0

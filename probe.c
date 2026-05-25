@@ -1,12 +1,17 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <tlhelp32.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
 
 typedef LONG NTSTATUS;
 typedef NTSTATUS (WINAPI *NtMapViewOfSection_t)(HANDLE,HANDLE,PVOID*,ULONG_PTR,SIZE_T,LARGE_INTEGER*,SIZE_T*,DWORD,ULONG,ULONG);
 typedef NTSTATUS (WINAPI *NtUnmapViewOfSection_t)(HANDLE,PVOID);
+typedef PVOID (WINAPI *RtlFindExportedRoutineByName_t)(HMODULE,const char*);
+typedef BOOL (WINAPI *IsWow64Process2_t)(HANDLE,USHORT*,USHORT*);
 
 #ifndef STATUS_SUCCESS
 #define STATUS_SUCCESS ((NTSTATUS)0)
@@ -18,6 +23,7 @@ typedef NTSTATUS (WINAPI *NtUnmapViewOfSection_t)(HANDLE,PVOID);
 
 static NtMapViewOfSection_t pNtMapViewOfSection;
 static NtUnmapViewOfSection_t pNtUnmapViewOfSection;
+static RtlFindExportedRoutineByName_t pRtlFindExportedRoutineByName;
 
 static DWORD hook_code[] =
 {
@@ -79,9 +85,13 @@ static void dump_results(const char *hook, const char *scenario)
 static BYTE *resolve_export_target(HMODULE module, const char *name)
 {
     static const BYTE fast_forward[] = { 0x48, 0x8b, 0xc4, 0x48, 0x89, 0x58, 0x20, 0x55, 0x5d, 0xe9 };
-    BYTE *ptr = (BYTE *)GetProcAddress(module, name);
+    BYTE *ptr = NULL;
     LONG rel;
 
+    if (pRtlFindExportedRoutineByName)
+        ptr = (BYTE *)pRtlFindExportedRoutineByName(module, name);
+    if (!ptr)
+        ptr = (BYTE *)GetProcAddress(module, name);
     if (!ptr) return NULL;
 
     printf("export %s at %p", name, ptr);
@@ -94,6 +104,131 @@ static BYTE *resolve_export_target(HMODULE module, const char *name)
     }
     printf("\n");
     return ptr;
+}
+
+static void print_module_if_relevant(const MODULEENTRY32W *entry)
+{
+    WCHAR lower[MAX_PATH];
+    size_t i;
+
+    for (i = 0; i < MAX_PATH && entry->szModule[i]; ++i)
+    {
+        WCHAR ch = entry->szModule[i];
+        lower[i] = (ch >= L'A' && ch <= L'Z') ? ch + (L'a' - L'A') : ch;
+    }
+    lower[i] = 0;
+
+    if (wcsstr(lower, L"jit") || wcsstr(lower, L"wow") ||
+        wcsstr(lower, L"chpe") || wcsstr(lower, L"ntdll"))
+    {
+        printf("module %-24ls base=%p path=%ls\n",
+               entry->szModule, entry->modBaseAddr, entry->szExePath);
+    }
+}
+
+static void dump_process_architecture(HMODULE ntdll)
+{
+    IsWow64Process2_t pIsWow64Process2 =
+        (IsWow64Process2_t)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "IsWow64Process2");
+    SYSTEM_INFO native_info;
+    USHORT process_machine = 0, native_machine = 0;
+
+    GetNativeSystemInfo(&native_info);
+    printf("GetNativeSystemInfo processor_architecture=%u processors=%lu page_size=%lu\n",
+           native_info.wProcessorArchitecture, native_info.dwNumberOfProcessors,
+           native_info.dwPageSize);
+
+    if (pIsWow64Process2 &&
+        pIsWow64Process2(GetCurrentProcess(), &process_machine, &native_machine))
+    {
+        printf("IsWow64Process2 process_machine=0x%04x native_machine=0x%04x\n",
+               process_machine, native_machine);
+    }
+    else
+    {
+        printf("IsWow64Process2 unavailable/failed gle=%lu\n", GetLastError());
+    }
+
+    pRtlFindExportedRoutineByName =
+        (RtlFindExportedRoutineByName_t)GetProcAddress(ntdll, "RtlFindExportedRoutineByName");
+    printf("RtlFindExportedRoutineByName=%p\n", pRtlFindExportedRoutineByName);
+}
+
+static void dump_relevant_modules(void)
+{
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                                               GetCurrentProcessId());
+    MODULEENTRY32W entry;
+
+    if (snapshot == INVALID_HANDLE_VALUE)
+    {
+        printf("CreateToolhelp32Snapshot failed gle=%lu\n", GetLastError());
+        return;
+    }
+
+    entry.dwSize = sizeof(entry);
+    if (Module32FirstW(snapshot, &entry))
+    {
+        do
+        {
+            print_module_if_relevant(&entry);
+            entry.dwSize = sizeof(entry);
+        } while (Module32NextW(snapshot, &entry));
+    }
+    else
+    {
+        printf("Module32FirstW failed gle=%lu\n", GetLastError());
+    }
+
+    CloseHandle(snapshot);
+}
+
+static HMODULE find_or_load_xtajit(void)
+{
+    const WCHAR *names[] =
+    {
+        L"xtajit64.dll",
+        L"C:\\Windows\\System32\\xtajit64.dll",
+        L"xtajit.dll",
+        L"C:\\Windows\\System32\\xtajit.dll",
+        NULL
+    };
+    const WCHAR *diagnostic_names[] =
+    {
+        L"wow64cpu.dll",
+        L"C:\\Windows\\System32\\wow64cpu.dll",
+        NULL
+    };
+    HMODULE module;
+    unsigned int i;
+
+    for (i = 0; names[i]; ++i)
+    {
+        module = GetModuleHandleW(names[i]);
+        printf("GetModuleHandleW(%ls)=%p gle=%lu\n", names[i], module, GetLastError());
+        if (module) return module;
+    }
+
+    for (i = 0; names[i]; ++i)
+    {
+        SetLastError(0);
+        module = LoadLibraryW(names[i]);
+        printf("LoadLibraryW(%ls)=%p gle=%lu\n", names[i], module, GetLastError());
+        if (module) return module;
+    }
+
+    for (i = 0; diagnostic_names[i]; ++i)
+    {
+        SetLastError(0);
+        module = GetModuleHandleW(diagnostic_names[i]);
+        printf("GetModuleHandleW(%ls)=%p gle=%lu\n", diagnostic_names[i], module, GetLastError());
+        SetLastError(0);
+        module = LoadLibraryW(diagnostic_names[i]);
+        printf("LoadLibraryW(%ls)=%p gle=%lu\n", diagnostic_names[i], module, GetLastError());
+        if (module) FreeLibrary(module);
+    }
+
+    return NULL;
 }
 
 static BOOL install_hook(HMODULE module, struct hook *hook)
@@ -250,7 +385,7 @@ static void run_scenarios_for_hook(HMODULE module, struct hook *hook)
 int main(void)
 {
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
-    HMODULE xtajit = GetModuleHandleW(L"xtajit64.dll");
+    HMODULE xtajit;
     struct hook hooks[] =
     {
         { "memory_protect", { "NotifyMemoryProtect", "BTCpuNotifyMemoryProtect", NULL } },
@@ -264,11 +399,16 @@ int main(void)
     printf("PROCESSOR_ARCHITECTURE=%s PROCESSOR_ARCHITEW6432=%s\n",
            getenv("PROCESSOR_ARCHITECTURE") ? getenv("PROCESSOR_ARCHITECTURE") : "",
            getenv("PROCESSOR_ARCHITEW6432") ? getenv("PROCESSOR_ARCHITEW6432") : "");
-    printf("ntdll=%p xtajit64=%p\n", ntdll, xtajit);
+    printf("ntdll=%p\n", ntdll);
+    if (ntdll) dump_process_architecture(ntdll);
+    dump_relevant_modules();
+
+    xtajit = find_or_load_xtajit();
+    printf("selected xtajit module=%p\n", xtajit);
 
     if (!ntdll || !xtajit)
     {
-        printf("FAIL missing ntdll or xtajit64; this must run as an x64 process on Windows-on-Arm\n");
+        printf("FAIL missing ntdll or xTAJIT module; this runner/process cannot expose the callback surface\n");
         return 2;
     }
 
