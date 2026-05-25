@@ -11,7 +11,7 @@ jobs:
 
       - uses: ilammy/msvc-dev-cmd@v1
         with:
-          arch: arm64
+          arch: amd64
 
       - name: Show environment
         shell: cmd
@@ -22,17 +22,17 @@ jobs:
           where cl
           where clang-cl || exit /b 0
 
-      - name: Build ARM64EC probe with MSVC
+      - name: Build x64 probe with MSVC
         shell: cmd
         run: |
-          cl /nologo /W4 /Zi /O2 /arm64EC probe.c /link /MACHINE:ARM64EC /OUT:arm64ec_probe.exe
+          cl /nologo /W4 /Zi /O2 probe.c /link /MACHINE:X64 /OUT:x64_probe.exe
 
       - name: Inspect binary
         shell: pwsh
         run: |
-          dumpbin /headers arm64ec_probe.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
+          dumpbin /headers x64_probe.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
 
       - name: Run probe
         shell: cmd
         run: |
-          arm64ec_probe.exe
+          x64_probe.exe

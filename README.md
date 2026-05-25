@@ -1,6 +1,6 @@
 # ARM64EC Callback Behavior Probe
 
-This scratch repository runs a tiny ARM64EC program on GitHub's Windows-on-Arm
+This scratch repository runs a tiny x64 program on GitHub's Windows-on-Arm
 runner and records which `xtajit64.dll` notification callbacks fire for
 executable memory-protection and section-map operations.
 

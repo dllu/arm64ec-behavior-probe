@@ -268,7 +268,7 @@ int main(void)
 
     if (!ntdll || !xtajit)
     {
-        printf("FAIL missing ntdll or xtajit64; this must run as ARM64EC/x64-on-ARM64 process\n");
+        printf("FAIL missing ntdll or xtajit64; this must run as an x64 process on Windows-on-Arm\n");
         return 2;
     }
 
