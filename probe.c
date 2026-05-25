@@ -187,8 +187,12 @@ static HMODULE find_or_load_xtajit(void)
 {
     const WCHAR *names[] =
     {
+        L"xtajit64se.dll",
+        L"C:\\Windows\\System32\\xtajit64se.dll",
         L"xtajit64.dll",
         L"C:\\Windows\\System32\\xtajit64.dll",
+        L"xtajitse.dll",
+        L"C:\\Windows\\System32\\xtajitse.dll",
         L"xtajit.dll",
         L"C:\\Windows\\System32\\xtajit.dll",
         NULL
