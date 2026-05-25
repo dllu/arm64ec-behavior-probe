@@ -1,0 +1,38 @@
+name: arm64ec-callback-probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Show environment
+        shell: cmd
+        run: |
+          ver
+          echo PROCESSOR_ARCHITECTURE=%PROCESSOR_ARCHITECTURE%
+          echo PROCESSOR_ARCHITEW6432=%PROCESSOR_ARCHITEW6432%
+          where cl
+          where clang-cl || exit /b 0
+
+      - name: Build ARM64EC probe with MSVC
+        shell: cmd
+        run: |
+          cl /nologo /W4 /Zi /O2 /arm64EC probe.c /link /MACHINE:ARM64EC /OUT:arm64ec_probe.exe
+
+      - name: Inspect binary
+        shell: pwsh
+        run: |
+          dumpbin /headers arm64ec_probe.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
+
+      - name: Run probe
+        shell: cmd
+        run: |
+          arm64ec_probe.exe
