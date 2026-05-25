@@ -341,6 +341,47 @@ static void scenario_file_map_execute(void)
     CloseHandle(file);
 }
 
+static void scenario_image_map(BOOL loader_marker)
+{
+    WCHAR path[MAX_PATH];
+    HANDLE file, mapping;
+    void *addr = NULL;
+    SIZE_T size = 0;
+    NTSTATUS status;
+    PVOID old_marker = NULL;
+
+    GetSystemDirectoryW(path, MAX_PATH);
+    wcscat_s(path, MAX_PATH, L"\\version.dll");
+    file = CreateFileW(path, GENERIC_READ | GENERIC_EXECUTE, FILE_SHARE_READ, NULL,
+                       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    printf("  image path=%ls file=%p gle=%lu loader_marker=%u\n",
+           path, file, GetLastError(), loader_marker);
+    if (file == INVALID_HANDLE_VALUE) return;
+
+    mapping = CreateFileMappingW(file, NULL, PAGE_READONLY | SEC_IMAGE, 0, 0, NULL);
+    printf("  image mapping=%p gle=%lu\n", mapping, GetLastError());
+    if (!mapping)
+    {
+        CloseHandle(file);
+        return;
+    }
+
+    if (loader_marker)
+    {
+        old_marker = NtCurrentTeb()->ArbitraryUserPointer;
+        NtCurrentTeb()->ArbitraryUserPointer = path;
+    }
+    status = pNtMapViewOfSection(mapping, GetCurrentProcess(), &addr, 0, 0, NULL, &size,
+                                 ViewShare, 0, PAGE_READONLY);
+    if (loader_marker) NtCurrentTeb()->ArbitraryUserPointer = old_marker;
+
+    printf("  image NtMapViewOfSection status=%08lx addr=%p size=%llu loader_marker=%u\n",
+           status, addr, (unsigned long long)size, loader_marker);
+    if (status == STATUS_SUCCESS) pNtUnmapViewOfSection(GetCurrentProcess(), addr);
+    CloseHandle(mapping);
+    CloseHandle(file);
+}
+
 static void scenario_remap_same_address(void)
 {
     HANDLE mapping;
@@ -379,6 +420,12 @@ static void run_scenarios_for_hook(HMODULE module, struct hook *hook)
 
     scenario_file_map_execute();
     dump_results(hook->label, "NtMapViewOfSection file PAGE_EXECUTE_READWRITE");
+
+    scenario_image_map(FALSE);
+    dump_results(hook->label, "NtMapViewOfSection SEC_IMAGE direct");
+
+    scenario_image_map(TRUE);
+    dump_results(hook->label, "NtMapViewOfSection SEC_IMAGE loader_marker");
 
     scenario_remap_same_address();
     dump_results(hook->label, "VirtualFree then NtMapViewOfSection same_address");
