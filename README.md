@@ -6,3 +6,7 @@ executable memory-protection and section-map operations.
 
 The output is observational. It is intended to inform Wine/FEX integration work,
 not to assert pass/fail behavior.
+
+The `ntreadfile-arm64x-probe` workflow also checks whether `NtReadFile` returns
+raw or ARM64X-fixed bytes when reading DLL files that contain ARM64X dynamic
+relocation records.

@@ -1,0 +1,55 @@
+name: ntreadfile-arm64x-probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  x64:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build x64 NtReadFile probe
+        shell: cmd
+        run: |
+          cl /nologo /W4 /Zi /O2 ntreadfile_arm64x_probe.c /link /MACHINE:X64 /OUT:ntreadfile_arm64x_x64.exe
+
+      - name: Inspect x64 binary
+        shell: pwsh
+        run: |
+          dumpbin /headers ntreadfile_arm64x_x64.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
+
+      - name: Run x64 NtReadFile probe
+        shell: pwsh
+        run: |
+          .\ntreadfile_arm64x_x64.exe
+          Write-Host "ntreadfile_arm64x_x64 exit=$LASTEXITCODE"
+
+  arm64ec:
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64_arm64
+
+      - name: Build ARM64EC NtReadFile probe
+        shell: cmd
+        run: |
+          cl /nologo /W4 /Zi /O2 /arm64EC ntreadfile_arm64x_probe.c /link /MACHINE:ARM64EC /OUT:ntreadfile_arm64x_arm64ec.exe
+
+      - name: Inspect ARM64EC binary
+        shell: pwsh
+        run: |
+          dumpbin /headers ntreadfile_arm64x_arm64ec.exe | Select-String -Pattern 'machine|ARM64|x64|FILE HEADER' -Context 0,2
+
+      - name: Run ARM64EC NtReadFile probe
+        shell: pwsh
+        run: |
+          .\ntreadfile_arm64x_arm64ec.exe
+          Write-Host "ntreadfile_arm64x_arm64ec exit=$LASTEXITCODE"
