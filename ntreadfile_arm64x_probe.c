@@ -4,6 +4,7 @@
 #include <winternl.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stddef.h>
 
 #ifndef IMAGE_DYNAMIC_RELOCATION_ARM64X
 #define IMAGE_DYNAMIC_RELOCATION_ARM64X 6
@@ -139,7 +140,7 @@ static unsigned int apply_arm64x_relocations(BYTE *fixed, const struct parsed_im
             switch (type)
             {
             case IMAGE_DVRT_ARM64X_FIXUP_TYPE_ZEROFILL:
-                fixup_size = 1u << arg;
+                fixup_size = (size_t)1 << arg;
                 if (rva_to_raw(image, rva, fixup_size, &raw) &&
                     (target = file_range(fixed, image->size, raw, fixup_size)))
                 {
@@ -149,7 +150,7 @@ static unsigned int apply_arm64x_relocations(BYTE *fixed, const struct parsed_im
                 }
                 break;
             case IMAGE_DVRT_ARM64X_FIXUP_TYPE_VALUE:
-                fixup_size = 1u << arg;
+                fixup_size = (size_t)1 << arg;
                 if ((const BYTE *)rel + fixup_size > (const BYTE *)rel_end) return changed;
                 if (rva_to_raw(image, rva, fixup_size, &raw) &&
                     (target = file_range(fixed, image->size, raw, fixup_size)))
